@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"regexp"
 	"sort"
@@ -269,15 +270,26 @@ func main() {
 				Aliases: []string{},
 				Flags: []cli.Flag{
 					&cli.StringFlag{Name: "name", Value: "", Usage: "MUST SET! base name"},
+					&cli.BoolFlag{Name: "csv", Value: false, Usage: "output result as csv format"},
 				},
 				Usage:       "Use this command if you didn't use it",
 				Description: "view base named --name",
 				Action: func(c *cli.Context) error {
+					var w io.Writer = os.Stdout
+
 					name := strings.TrimSpace(c.String("name"))
 					_, base := Load(name)
 					logs := base.Load()
 
-					logs.TableFprintln(os.Stdout)
+					if c.Bool("csv") {
+						err := logs.CSV(w)
+						if err != nil {
+							Errorln("output csv:", err)
+						}
+
+					} else {
+						logs.TableFprintln(w)
+					}
 					return nil
 				},
 			},
@@ -357,11 +369,13 @@ func main() {
 							})
 						}
 
+						fmt.Println("# Mutates")
 						mutates.TableFprintln(os.Stdout)
 
 						logs.Merge(mutates)
 
 						if view_only {
+							fmt.Println("# After mutations")
 							logs.TableFprintln(os.Stdout)
 							break
 						} else {

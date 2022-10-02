@@ -1,6 +1,7 @@
 package setlogs
 
 import (
+	"encoding/csv"
 	"io"
 	"sort"
 	"strings"
@@ -202,6 +203,19 @@ func (l SetLog) Keys() []string {
 	return keys
 }
 
+func (l SetLog) Rows() [][]string {
+	header := l.Keys()
+	rows := make([][]string, len(l.Records))
+	for i, r := range l.Records {
+		row := make([]string, len(header))
+		for j, k := range header {
+			row[j] = r[k]
+		}
+		rows[i] = row
+	}
+	return rows
+}
+
 func (l SetLog) TableFprintln(w io.Writer) {
 	header := l.Keys()
 
@@ -217,11 +231,7 @@ func (l SetLog) TableFprintln(w io.Writer) {
 	}
 	table.SetHeaderColor(header_colors...)
 
-	for _, r := range l.Records {
-		row := make([]string, len(header))
-		for j, k := range header {
-			row[j] = r[k]
-		}
+	for _, row := range l.Rows() {
 		table.Append(row)
 	}
 
@@ -234,4 +244,17 @@ func (l SetLog) TableFprintln(w io.Writer) {
 	table.SetColumnColor(column_colors...)
 
 	table.Render()
+}
+
+func (l SetLog) CSV(w io.Writer) error {
+	header := l.Keys()
+	rows := l.Rows()
+
+	csvw := csv.NewWriter(w)
+	err := csvw.Write(header)
+	if err != nil {
+		return err
+	}
+
+	return csvw.WriteAll(rows)
 }
