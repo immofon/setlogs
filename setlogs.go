@@ -1,9 +1,22 @@
 package setlogs
 
+import (
+	"io"
+	"sort"
+	"strings"
+
+	"github.com/olekukonko/tablewriter"
+)
+
 const ID string = "@id"
-const TypeBase string = "base"
-const TypeMutate string = "mutate"
-const TypeSet string = "set"
+const DELETE string = "@delete"
+
+type Type string
+
+const TypeEmpty Type = ""
+const TypeBase Type = "base"
+const TypeMutate Type = "mutate"
+const TypeSet Type = "set"
 
 type Record map[string]string
 type Set map[string]bool
@@ -12,19 +25,27 @@ func NewRecord() Record {
 	return make(Record)
 }
 
+func (r Record) SetDelete(del bool) {
+	if del {
+		r[DELETE] = "true"
+	} else {
+		delete(r, DELETE)
+	}
+}
+
 func NewSet() Set {
 	return make(Set)
 }
 
 type SetLog struct {
-	Type    string
+	Type    Type
 	Records []Record
 	Comment string
 }
 
-func New(log_type string) SetLog {
-	if log_type != TypeBase && log_type != TypeMutate && log_type != TypeSet {
-		panic("the log_type MUST be base or mutate or set!")
+func New(log_type Type) SetLog {
+	if log_type != TypeBase && log_type != TypeMutate && log_type != TypeSet && log_type != TypeEmpty {
+		panic("the log_type MUST be base or mutate or set or empty!")
 	}
 	return SetLog{
 		Type:    log_type,
@@ -34,7 +55,11 @@ func New(log_type string) SetLog {
 }
 
 func (l SetLog) Check() bool {
-	// the Type of SetLog MUST be Base or Mutate or Set.
+	if l.Type == TypeEmpty {
+		return true
+	}
+
+	// the Type of SetLog MUST be Base or Mutate or Set or Empty.
 	if l.Type != TypeBase && l.Type != TypeMutate && l.Type != TypeSet {
 		return false
 	}
@@ -99,15 +124,34 @@ func (l SetLog) FilterByID(id_set Set) []Record {
 }
 
 func (l *SetLog) Update(update func(r Record) Record) {
-	for i, record := range l.Records {
-		l.Records[i] = update(record)
+	new_records := make([]Record, 0, len(l.Records))
+	for _, record := range l.Records {
+		r := update(record)
+		if r[DELETE] == "" {
+			new_records = append(new_records, r)
+		}
 	}
+	l.Records = new_records
 }
 
 // Merge log typed mutate to l typed base.
 func (l *SetLog) Merge(log SetLog) {
+	if l.Type == TypeEmpty {
+		if log.Type == TypeBase {
+			l.Type = log.Type
+			l.Records = log.Records
+			l.Comment = log.Comment
+			return
+		} else {
+			panic("You cannot Merge non-Base SetLog to Empty SetLog")
+		}
+	}
 	if l.Type != TypeBase {
 		panic("You can only Merge SetLog to a SetLog [[typed base]]!")
+	}
+
+	if log.Type == TypeEmpty || log.Type == TypeSet {
+		return
 	}
 
 	if log.Type != TypeMutate {
@@ -140,4 +184,54 @@ func (l *SetLog) AppendRecords(records ...Record) {
 	for _, r := range records {
 		l.Records = append(l.Records, r)
 	}
+}
+
+func (l SetLog) Keys() []string {
+	keys_map := make(map[string]bool)
+	for _, r := range l.Records {
+		for k, _ := range r {
+			keys_map[k] = true
+		}
+	}
+	keys := make([]string, 0, len(keys_map))
+	for k, _ := range keys_map {
+		keys = append(keys, k)
+	}
+
+	sort.Sort(sort.StringSlice(keys))
+	return keys
+}
+
+func (l SetLog) TableFprintln(w io.Writer) {
+	header := l.Keys()
+
+	table := tablewriter.NewWriter(w)
+	table.SetHeader(header)
+	table.SetAutoFormatHeaders(false)
+
+	header_colors := make([]tablewriter.Colors, len(header))
+	for i, key := range header {
+		if strings.HasPrefix(key, "@") {
+			header_colors[i] = tablewriter.Colors{tablewriter.FgHiYellowColor}
+		}
+	}
+	table.SetHeaderColor(header_colors...)
+
+	for _, r := range l.Records {
+		row := make([]string, len(header))
+		for j, k := range header {
+			row[j] = r[k]
+		}
+		table.Append(row)
+	}
+
+	column_colors := make([]tablewriter.Colors, len(header))
+	for i, key := range header {
+		if key == "@id" {
+			column_colors[i] = tablewriter.Colors{tablewriter.Bold}
+		}
+	}
+	table.SetColumnColor(column_colors...)
+
+	table.Render()
 }
